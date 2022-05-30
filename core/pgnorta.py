@@ -1,3 +1,4 @@
+from email.mime import base
 from http.client import UnimplementedFileMode
 import progressbar
 from scipy.stats import multivariate_normal
@@ -8,6 +9,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 from colored import fg, attr
+
 
 class PGnorta():
     def __init__(self, base_intensity, cov, alpha):
@@ -53,7 +55,7 @@ class PGnorta():
                           scale=1/self.alpha[-n_step:])
             intensity = B * self.base_intensity[-n_step:]
         return intensity
-    
+
     def sample_intensity(self, n_sample):
         """Sample arrival intensity from PGnorta model.
 
@@ -66,7 +68,6 @@ class PGnorta():
         z = multivariate_normal.rvs(np.zeros(self.p), self.cov, n_sample)
         intensity = self.z_to_lam(z)
         return intensity
-        
 
     def sample_count(self, n_sample):
         """Sample arrival count from PGnorta model.
@@ -80,7 +81,7 @@ class PGnorta():
         intensity = self.sample_intensity(n_sample)
         count = np.random.poisson(intensity)
         return count
-    
+
     def sample_both(self, n_sample):
         """Sample both arrival count and intensity from PGnorta model.
 
@@ -95,6 +96,30 @@ class PGnorta():
         count = np.random.poisson(intensity)
         return intensity, count
 
+    # read norta from file
+    @staticmethod
+    def load_PGnorta(norta_config_file_dir):
+        """Load PGnorta model from file.
+
+        Args:
+            norta_config_file_dir (str): The directory of the PGnorta model file.
+
+        Returns:
+            PGnorta (PGnorta): The PGnorta model.
+        """
+        norta_config = np.load(norta_config_file_dir, allow_pickle=True).item()
+        base_intensity, cov, alpha = norta_config['base_intensity'], norta_config['cov'], norta_config['alpha']
+        return PGnorta(np.array(base_intensity), np.array(cov), np.array(alpha))
+
+    def save_model(self, norta_config_file_dir):
+        """Save PGnorta model to file.
+
+        Args:
+            norta_config_file_dir (str): The directory of the PGnorta model file.
+            PGnorta (PGnorta): The PGnorta model.
+        """
+        np.savez(norta_config_file_dir, base_intensity=self.base_intensity,
+                 cov=self.cov, alpha=self.alpha)
 
 
 def estimate_PGnorta(count_mat, zeta=9/16, max_T=1000, M=100, img_dir_name=None, rho_mat_dir_name=None):
@@ -104,16 +129,17 @@ def estimate_PGnorta(count_mat, zeta=9/16, max_T=1000, M=100, img_dir_name=None,
     alpha = lam ** 2 / (var_X - lam)
 
     if np.min(alpha) < 0:
-        print('The arrival count of the {}-th time interval does not satisfy variance >= mean'.format(np.where(alpha < 0)[0]))
-        
-    alpha[alpha < 0] = 10000 # alpha 越大，则生成的arrival count的mean和variance越接近
+        print(
+            'The arrival count of the {}-th time interval does not satisfy variance >= mean'.format(np.where(alpha < 0)[0]))
 
-    kappa_t = lambda t : 0.1 * t ** (- zeta)
-    rho_jk_record = np.zeros((p,p,max_T))
+    alpha[alpha < 0] = 10000  # alpha 越大，则生成的arrival count的mean和variance越接近
 
+    def kappa_t(t): return 0.1 * t ** (- zeta)
+    rho_jk_record = np.zeros((p, p, max_T))
 
     # if tile rho_mat_dir_name exist, read it directly
-    if os.path.exists(rho_mat_dir_name):
+
+    if rho_mat_dir_name is not None and os.path.exists(rho_mat_dir_name):
         print(fg('blue') + 'Loading rho_matrix directly.' + attr('reset'))
         rho_jk_record = np.load(rho_mat_dir_name)
     else:
@@ -123,24 +149,28 @@ def estimate_PGnorta(count_mat, zeta=9/16, max_T=1000, M=100, img_dir_name=None,
             for j in range(p):
                 for k in range(p):
                     if j == k:
-                        rho_jk_record[j,k,:] = 1
+                        rho_jk_record[j, k, :] = 1
                         continue
                     rho_jk = 0
-                    hat_r_jk_X = spearmanr(count_mat[:,j], count_mat[:,k])[0]
+                    hat_r_jk_X = spearmanr(count_mat[:, j], count_mat[:, k])[0]
                     for t in range(1, max_T):
                         # for m = 1 to M do
-                        Z = multivariate_normal.rvs(np.zeros(2), [[1,rho_jk],[rho_jk,1]], M)
+                        Z = multivariate_normal.rvs(
+                            np.zeros(2), [[1, rho_jk], [rho_jk, 1]], M)
                         U = norm.cdf(Z)
-                        B_j = gamma.ppf(q=U[:,0], a=alpha[j], scale=1/alpha[j])
-                        B_k = gamma.ppf(q=U[:,1], a=alpha[k], scale=1/alpha[k])
+                        B_j = gamma.ppf(
+                            q=U[:, 0], a=alpha[j], scale=1/alpha[j])
+                        B_k = gamma.ppf(
+                            q=U[:, 1], a=alpha[k], scale=1/alpha[k])
                         T_j, T_k = lam[j] * B_j, lam[k] * B_k
-                        X_j, X_k = np.random.poisson(T_j), np.random.poisson(T_k)
+                        X_j, X_k = np.random.poisson(
+                            T_j), np.random.poisson(T_k)
                         # end for
 
                         tilde_r_jk_X = spearmanr(X_j, X_k)[0]
 
                         rho_jk += kappa_t(t) * (hat_r_jk_X - tilde_r_jk_X)
-                        rho_jk_record[j,k,t] = rho_jk
+                        rho_jk_record[j, k, t] = rho_jk
                     # plt.figure()
                     # plt.plot(rho_jk_record[j,k,:])
                     # plt.show()
@@ -151,8 +181,8 @@ def estimate_PGnorta(count_mat, zeta=9/16, max_T=1000, M=100, img_dir_name=None,
                         plt.figure()
                         for j_ in range(p):
                             for k_ in range(p):
-                                if rho_jk_record[j_, k_, -1] != 0: 
-                                    plt.plot(rho_jk_record[j_,k_,:])
+                                if rho_jk_record[j_, k_, -1] != 0:
+                                    plt.plot(rho_jk_record[j_, k_, :])
                                     n_plot += 1
                                     if n_plot == 50:
                                         break
@@ -163,9 +193,9 @@ def estimate_PGnorta(count_mat, zeta=9/16, max_T=1000, M=100, img_dir_name=None,
         if rho_mat_dir_name is not None:
             np.save(rho_mat_dir_name, rho_jk_record)
             print(fg('blue') + 'rho_matrix saved to file.' + attr('reset'))
-    norta = PGnorta(base_intensity=lam, cov=rho_jk_record[:,:,-1], alpha=alpha)
+    norta = PGnorta(base_intensity=lam,
+                    cov=rho_jk_record[:, :, -1], alpha=alpha)
     return norta
-
 
 
 def sample_PGnorta_marginal(base_intensity_t, alpha_t, n_sample):
@@ -176,3 +206,11 @@ def sample_PGnorta_marginal(base_intensity_t, alpha_t, n_sample):
     intensity = B * base_intensity_t
     count = np.random.poisson(intensity)
     return intensity, count
+
+
+# if __name__ == '__main__':
+#     # read count matrix and estimate PGnorta model, save config to files
+
+#     norta = estimate_PGnorta(count_mat, zeta=9/16, max_T=1000,
+#                              M=100, img_dir_name='../data/rho_estimation.png')
+#     PGnorta.save_PGnorta('../data/norta_config.npz', norta)

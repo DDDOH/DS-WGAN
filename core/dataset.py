@@ -2,6 +2,8 @@ import os
 from scipy.stats import gamma, multivariate_normal, norm, uniform
 import numpy as np
 import shutil
+import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 
 
 # set marginal mean, marginal variance for intensity.
@@ -53,13 +55,13 @@ def get_synthetic_dataset(P, N_TRAIN, DATASET, NEW_DATA, DATA_DIR=None):
     return intensity, train
 
 
-def get_real_dataset(DATASET, DATA_DIR):
-    if DATA_DIR != '':  # if DATA_DIR is '', which means evaluating in the result folder, no need to check the data path
-        assert os.path.isdir(DATA_DIR)
-    print('Load from exisitng files in {}'.format(DATA_DIR))
+def get_real_dataset(DATASET):
+    # if DATA_DIR != '':  # if DATA_DIR is '', which means evaluating in the result folder, no need to check the data path
+    #     assert os.path.isdir(DATA_DIR)
+    # print('Load from exisitng files in {}'.format(DATA_DIR))
     if DATASET in ['callcenter', 'bikeshare']:
-        train, test = np.load(DATA_DIR + 'train_{}.npy'.format(DATASET)
-                              ), np.load(DATA_DIR + 'test_{}.npy'.format(DATASET))
+        train, test = np.load('core/dataset/train_{}.npy'.format(DATASET)
+                              ), np.load('core/dataset/test_{}.npy'.format(DATASET))
         return train, test
     else:
         raise ValueError('Dataset not supported')
@@ -110,3 +112,31 @@ def sample_bimodal(P, N_TRAIN):
     train = np.random.poisson(intensity)
 
     return intensity, train
+
+
+def visualize(dataset, fig_dir, train):
+    P = np.shape(train)[1]
+    fig, ax = plt.subplots()
+    plt.plot(np.mean(train, axis=0))
+    plt.scatter(np.tile(np.arange(P), np.shape(train)[0]).reshape(
+        P, np.shape(train)[0]), train, alpha=0.02, c='C1', s=40, edgecolors='none', label=r'$(j,X_{i,j})$')
+    plt.xlabel('Time Interval')
+    plt.ylabel('Arrival Count')
+    plt.xticks(ticks=np.arange(0, P), labels=np.arange(0, P)+1)
+    plt.ylim(np.min(train)*0.9, np.max(train)*1.1)
+    legend_elements = [Line2D([0], [0], color='C0', lw=1, label='Marginal Mean'),
+                       Line2D([0], [0], marker='o', lw=0, color='w', label=r'$(j,X_{i,j})$',
+                              markerfacecolor='C1', markersize=7, alpha=0.6)]
+    ax.legend(handles=legend_elements)
+    plt.tight_layout()
+    plt.savefig(os.path.join(fig_dir, '{}_mean_scatter.pdf').format(dataset))
+    plt.close('all')
+
+    plt.figure()
+    plt.plot(np.var(train, axis=0))
+    plt.xlabel('Time Interval')
+    plt.ylabel('Marginal Variance of Arrival Count')
+    plt.xticks(ticks=np.arange(0, P), labels=np.arange(0, P)+1)
+    plt.tight_layout()
+    plt.savefig(os.path.join(fig_dir, '{}_var.pdf').format(dataset))
+    plt.close('all')
