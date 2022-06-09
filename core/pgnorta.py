@@ -1,5 +1,3 @@
-from email.mime import base
-from http.client import UnimplementedFileMode
 import progressbar
 from scipy.stats import multivariate_normal
 from scipy.stats import norm
@@ -9,6 +7,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 from colored import fg, attr
+import matplotlib.image as mpimg
+from numpy import linalg as la
 
 
 class PGnorta():
@@ -206,6 +206,110 @@ def sample_PGnorta_marginal(base_intensity_t, alpha_t, n_sample):
     intensity = B * base_intensity_t
     count = np.random.poisson(intensity)
     return intensity, count
+
+
+def get_PGnorata_from_img():
+    """Get parameters for PGnorta model from the image.
+
+    Returns:
+        (PGnorta): A PGnorta instance with the parameters come from images.
+    """
+    # TODO add support for more images.
+
+    # read correlation matrix.
+    corr_img = 'assets/pgnorta/2_commercial_call_center_corr.png'
+    img = mpimg.imread(corr_img)
+    if corr_img == 'assets/pgnorta/2_commercial_call_center_corr.png':
+        colorbar = img[:, 1255, :3]
+        p = 24
+        width = 1220
+        height = 1115
+
+    n_color = np.shape(colorbar)[0]
+    width_interval = width / (p + 1)
+    height_interval = height/(p+1)
+    width_loc = np.arange(width_interval/2, width-width_interval/2, p)
+    height_loc = np.arange(height_interval/2, height-height_interval/2, p)
+    corr_mat = np.zeros((p, p))
+    for i in range(p):
+        for j in range(p):
+            rgb_ij = img[int(height_loc[i]), int(width_loc[j]), :3]
+            color_dist = np.sum(np.abs(colorbar - rgb_ij), axis=1)
+            corr_mat[i, j] = 1 - np.argmin(color_dist)/n_color
+    corr_mat = nearestPD(corr_mat)
+
+    # read mean curve.
+    mean_img = 'assets/pgnorta/2_commercial_call_center_mean.png'
+    img = mpimg.imread(mean_img)
+    line_img = img[28:625, 145:1235, :3]
+    p = 24
+    count_min = 100
+    count_max = 350
+    y_axis_length, x_axis_length = np.shape(line_img)[0], np.shape(line_img)[1]
+
+    loc = np.linspace(0, x_axis_length-1, p)
+    mean = np.zeros(p)
+    for i in range(p):
+        mean[i] = (1 - np.argmin(line_img[:, int(loc[i]), 1]) /
+                   y_axis_length)*(count_max-count_min) + count_min
+
+    alpha = np.random.uniform(6, 12, p)
+    return PGnorta(base_intensity=mean, cov=corr_mat, alpha=alpha)
+
+
+# ********** The code to find the nearset positive definite matrix ********** #
+# Reference: https://stackoverflow.com/a/43244194
+def nearestPD(A):
+    """Find the nearest positive-definite matrix to input
+
+    A Python/Numpy port of John D'Errico's `nearestSPD` MATLAB code [1], which
+    credits [2].
+
+    [1] https://www.mathworks.com/matlabcentral/fileexchange/42885-nearestspd
+
+    [2] N.J. Higham, "Computing a nearest symmetric positive semidefinite
+    matrix" (1988): https://doi.org/10.1016/0024-3795(88)90223-6
+    """
+
+    B = (A + A.T) / 2
+    _, s, V = la.svd(B)
+
+    H = np.dot(V.T, np.dot(np.diag(s), V))
+
+    A2 = (B + H) / 2
+
+    A3 = (A2 + A2.T) / 2
+
+    if isPD(A3):
+        return A3
+
+    spacing = np.spacing(la.norm(A))
+    # The above is different from [1]. It appears that MATLAB's `chol` Cholesky
+    # decomposition will accept matrixes with exactly 0-eigenvalue, whereas
+    # Numpy's will not. So where [1] uses `eps(mineig)` (where `eps` is Matlab
+    # for `np.spacing`), we use the above definition. CAVEAT: our `spacing`
+    # will be much larger than [1]'s `eps(mineig)`, since `mineig` is usually on
+    # the order of 1e-16, and `eps(1e-16)` is on the order of 1e-34, whereas
+    # `spacing` will, for Gaussian random matrixes of small dimension, be on
+    # othe order of 1e-16. In practice, both ways converge, as the unit test
+    # below suggests.
+    I = np.eye(A.shape[0])
+    k = 1
+    while not isPD(A3):
+        mineig = np.min(np.real(la.eigvals(A3)))
+        A3 += I * (-mineig * k**2 + spacing)
+        k += 1
+
+    return A3
+
+
+def isPD(B):
+    """Returns true when input is positive-definite, via Cholesky"""
+    try:
+        _ = la.cholesky(B)
+        return True
+    except la.LinAlgError:
+        return False
 
 
 # if __name__ == '__main__':

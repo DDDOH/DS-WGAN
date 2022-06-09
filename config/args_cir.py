@@ -1,4 +1,5 @@
 import argparse
+from pickle import FALSE
 
 
 def get_args(rest_args):
@@ -16,9 +17,9 @@ def get_args(rest_args):
     # if --dataset is 'uniform' or 'bimodal' or 'cir', how many data in training set
     parser.add_argument('--n_train', type=int, default=700)
     # if --dataset is cir, how many cir is sampled to get the true performance measure
-    parser.add_argument('--n_test', type=int, default=5)
+    parser.add_argument('--n_test', type=int, default=500)
     parser.add_argument('--result_dir', type=str,
-                        default='/Users/hector/Offline Documents/Doubly_Stochastic_WGAN/tmp_results')
+                        default='/Users/shuffleofficial/Offline_Documents/Doubly_Stochastic_WGAN/tmp_results')
 
     # network settings
     # use list in parser: https://stackoverflow.com/a/15753721
@@ -34,13 +35,19 @@ def get_args(rest_args):
 
     # evaluate settings
     # evaluate means comparing marginal distribution (ecdf and wasserstein distance)
-    parser.add_argument('--eval_marginal', type=bool, default=True)
+    parser.add_argument('--eval_marginal', type=bool, default=False)
     # parser.add_argument('--eval_run_through_queue', type=bool, default=True)
     parser.add_argument('--eval_multi_server_queue', type=bool, default=True)
     parser.add_argument('--eval_infinite_server_queue',
                         type=bool, default=True)
-    parser.add_argument('--eval_multi_freq', type=bool, default=100)
-    parser.add_argument('--eval_infinite_freq', type=bool, default=3000)
-    parser.add_argument('--distribution_eval_freq', type=int, default=100)
+    parser.add_argument('--eval_multi_freq', type=bool, default=1000)
+    parser.add_argument('--eval_infinite_freq', type=bool, default=500)
+    parser.add_argument('--distribution_eval_freq', type=int, default=500)
+    # 'cpp' or 'python' or 'both'
+    parser.add_argument('--des_backend', type=str, default='cpp')
+    parser.add_argument('--verbose', type=bool, default=True)
+
+    # others
+    parser.add_argument('--enable_gpu', type=bool, default=True)
 
     return parser.parse_args(rest_args)

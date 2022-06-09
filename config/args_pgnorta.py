@@ -6,7 +6,7 @@ def get_args(rest_args):
 
     # dataset and result directory settings
     # 'uniform' or 'bimodal' or 'bikeshare' or 'callcenter' or 'cir'
-    parser.add_argument('--dataset', type=str, default='uniform')
+    parser.add_argument('--dataset', type=str, default='pgnorta')
     # if --dataset is 'self-defined', then --data_dir should be specified
     # parser.add_argument('--data_dir', type=str, default='')
     # if --dataset is 'uniform' or 'bimodal',

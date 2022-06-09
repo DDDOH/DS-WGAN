@@ -3,12 +3,14 @@ import scipy
 import matplotlib.pyplot as plt
 import os
 import torch
-from .utils.des.des import *
-from .arrival_process import BatchCIR, BatchArrivalProcess
+from .des.des_py.des import *
+from .arrival_process import BatchArrivalProcess
 from .utils.arrival_epoch_simulator import arrival_epoch_simulator
+from scipy import stats
 
 
 def evaluate_marginal(count_WGAN, count_PGnorta, count_train, result_dir, iteration):
+
     assert np.shape(count_WGAN)[1] == np.shape(
         count_PGnorta)[1] == np.shape(count_train)[1]
 
@@ -29,7 +31,72 @@ def evaluate_marginal(count_WGAN, count_PGnorta, count_train, result_dir, iterat
     plt.savefig(os.path.join(result_dir, 'figures',
                 'marginal_w_distance_{}.png').format(iteration))
     plt.close()
+
+    # marginal ecdf
+    n_column = 5
+    n_row = np.ceil(p/n_column).astype(int) * 2
+    # figsize = (width, height)
+    fig, axes = plt.subplots(n_row, n_column, figsize=(
+        n_column * 6, n_row * 3))
+
+    for row in range(n_row):
+        for column in range(n_column):
+            interval = column + row//2 * n_column
+
+            if interval == p:
+                break
+
+            data_dict = {'DS-WGAN': count_WGAN[:, interval],
+                         'PGnorta': count_PGnorta[:, interval],
+                         'Training set': count_train[:, interval]}
+
+            if row % 2 == 0:
+                ecdf_plot(axes[row, column], data_dict,
+                          alpha=0.5, xlim=None, legend=(column == n_column-1) or (interval == p - 1), title='interval {} ecdf'.format(interval+1))
+            else:
+                kde_plot(axes[row, column], data_dict,
+                         alpha=0.5, xlim=None, legend=(column == n_column-1) or (interval == p - 1), title='interval {} kde'.format(interval+1))
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(result_dir, 'figures',
+                'marginal_ecdf_kde_{}.png').format(iteration))
+    plt.close('all')
     return {'PG': wasserstein_PG_train_rec, 'WGAN': wasserstein_WGAN_train_rec}
+
+
+def ecdf_plot(ax, data_dict, alpha, xlim=None, legend=False, title=''):
+    # iterate over data_dict
+    for key, value in data_dict.items():
+        ax.plot(np.sort(value), np.linspace(
+            0, 1, len(value), endpoint=False), label=key, alpha=alpha)
+    if xlim is not None:
+        ax.set_xlim(xlim)
+    ax.set_ylim(0, 1)
+    # ax.axes.xaxis.set_ticklabels([])
+    if legend:
+        ax.legend()
+    ax.set_title(title)
+
+
+def kde_plot(ax, data_dict, alpha, xlim=None, legend=False, title=''):
+    color_idx = 0
+    for key, value in data_dict.items():
+        try:
+            kernel = stats.gaussian_kde(value)
+            x = np.linspace(value.min(), value.max(), 1000)
+            ax.plot(x, kernel(x), label=key, alpha=alpha, c='C'+str(color_idx))
+        except:
+            ax.text(0.5, 0.5, 'Singular matrix',
+                    fontsize=20, c='C'+str(color_idx))
+            print('Singular matrix encountered')
+        color_idx += 1
+
+    if xlim is not None:
+        ax.set_xlim(xlim)
+    if legend:
+        ax.legend()
+    ax.set_title(title)
+    # raise NotImplemented
 
 
 def evaluate_joint(count_WGAN, count_PGnorta, count_train, result_dir, iteration):
@@ -70,65 +137,14 @@ def evaluate_joint(count_WGAN, count_PGnorta, count_train, result_dir, iteration
     return {'PG': past_future_corr_PG, 'WGAN': past_future_corr_WGAN, 'TRAIN': past_future_corr_train}
 
 
-# def compare_plot(real, fake, PGnorta_mean, PGnorta_var, msg, result_dir, save=False):
-#     """Visualize and compare the real and fake.
-#     """
-#     real_size = np.shape(real)[0]
-#     fake_size = np.shape(fake)[0]
-
-#     P = np.shape(real)[1]
-
-#     assert np.shape(real)[1] == np.shape(
-#         fake)[1] == len(PGnorta_mean) == len(PGnorta_var)
-
-#     max_intensity = max(np.max(fake), np.max(real))
-#     plt.figure(figsize=(16, 3))
-#     plt.subplot(141)
-#     plt.plot(np.mean(fake, axis=0), label='fake')
-#     plt.plot(np.mean(real, axis=0), label='real')
-#     plt.plot(PGnorta_mean, label='PGnorta')
-#     plt.xlabel('Time interval')
-#     plt.ylabel('Intensity or count')
-#     plt.title('Mean')
-#     plt.legend()
-
-#     plt.subplot(142)
-#     plt.plot(np.var(fake, axis=0), label='fake')
-#     plt.plot(np.var(real, axis=0), label='real')
-#     plt.plot(PGnorta_var, label='PGnorta')
-#     plt.xlabel('Time interval')
-#     plt.title('Std')
-#     plt.legend()
-
-#     plt.subplot(143)
-#     plt.scatter(np.tile(np.arange(P), real_size).reshape(
-#         P, real_size), real, alpha=0.003)
-#     plt.ylim(0, max_intensity * 1.2)
-#     plt.xlabel('Time interval')
-#     plt.title('Scatter plot of real')
-
-#     plt.subplot(144)
-#     plt.scatter(np.tile(np.arange(P), fake_size).reshape(
-#         P, fake_size), fake, alpha=0.003)
-#     plt.ylim(0, max_intensity * 1.2)
-#     plt.xlabel('Time interval')
-#     plt.title('Scatter plot of fake')
-#     if save:
-#         plt.savefig(
-#             result_dir + msg + '.png')
-#     else:
-#         plt.show()
-#     plt.close()
-
-
 def compare_plot(real, fake, PGnorta_mean, PGnorta_var, msg, save=False, result_dir=None):
     """Visualize and compare the real and fake.
     """
     # if real is torch tensor, convert to numpy
     if isinstance(real, torch.Tensor):
-        real = real.detach().numpy()
+        real = real.detach().cpu().numpy()
     if isinstance(fake, torch.Tensor):
-        fake = fake.detach().numpy()
+        fake = fake.detach().cpu().numpy()
     real_size = np.shape(real)[0]
     fake_size = np.shape(fake)[0]
 
@@ -188,213 +204,6 @@ def scatter_plot(interval_1_real, interval_2_real, interval_1_fake, interval_2_f
     plt.close()
 
 
-def marginal_ecdf():
-    # TODO update this function to make the ecdf plot
-    # get the latest net G:
-    netG_ls = glob.glob(result_dir + 'netG_*.pth')
-    netG_iter_ls = [int(netG_ls[i].split('_')[-1].split('.')[0])
-                    for i in range(len(netG_ls))]
-    max_iter = max(netG_iter_ls)
-
-    netG = Generator()
-    netG.load_state_dict(torch.load(
-        result_dir + 'netG_{}.pth'.format(max_iter)))
-    netG.eval()
-
-    color = fg('blue')
-
-    # marginal mean & var, past & future correlation, W-distance for PGnorta & DS-WGAN, with CI
-    n_rep_CI = 100  # how many replications to get the CI
-    n_sample = N_TRAIN  # how many samples generated for each replication
-
-    # get count_PGnorta_mat
-    if DEBUG:
-        norta = estimate_PGnorta(train, zeta=7/16, max_T=MAX_T, M=100, img_dir_name=result_dir +
-                                 'sumamry_PGnorta_rho_estimation_record.jpg', rho_mat_dir_name=result_dir+'rho_mat.npy')
-    else:
-        norta = estimate_PGnorta(train, zeta=7/16, max_T=MAX_T, M=100, img_dir_name=result_dir +
-                                 'sumamry_PGnorta_rho_estimation_record.jpg', rho_mat_dir_name=result_dir+'rho_mat.npy')
-
-    marginal_mean_PGnorta_rec = np.zeros((n_rep_CI, P))
-    marginal_var_PGnorta_rec = np.zeros((n_rep_CI, P))
-    marginal_mean_DSWGAN_rec = np.zeros((n_rep_CI, P))
-    marginal_var_DSWGAN_rec = np.zeros((n_rep_CI, P))
-    past_future_corr_PGnorta_rec = np.zeros((n_rep_CI, P-1))
-    past_future_corr_DSWGAN_rec = np.zeros((n_rep_CI, P-1))
-    past_future_corr_train = None
-    W_distance_PGnorta_rec = np.zeros((n_rep_CI, P))
-    W_distance_DSWGAN_rec = np.zeros((n_rep_CI, P))
-
-    # print(color + 'Now computing CI' + attr('reset'))
-    for i in progressbar.progressbar(range(n_rep_CI)):
-        # get count_WGAN_mat
-        noise = torch.randn(n_sample, args.seed_dim)
-
-        G_Z = netG(noise)
-        intensity_val = G_Z.cpu().data.numpy()
-        sign = np.sign(intensity_val)
-        intensity_val = intensity_val * sign
-        count_val = np.random.poisson(intensity_val)
-        count_WGAN_mat = count_val * sign
-
-        marginal_mean_DSWGAN_rec[i, :], marginal_var_DSWGAN_rec[i, :] = np.mean(
-            count_WGAN_mat, axis=0), np.var(count_WGAN_mat, axis=0)
-
-        count_PGnorta_mat = norta.sample_count(n_sample)
-        marginal_mean_PGnorta_rec[i, :], marginal_var_PGnorta_rec[i, :] = np.mean(
-            count_PGnorta_mat, axis=0), np.var(count_PGnorta_mat, axis=0)
-
-        w_dist = evaluate_marginal(
-            count_WGAN_mat, count_PGnorta_mat, train, result_dir)
-        past_future_corr = evaluate_joint(
-            count_WGAN_mat, count_PGnorta_mat, train, result_dir)
-
-        W_distance_PGnorta_rec[i, :] = w_dist['PG']
-        W_distance_DSWGAN_rec[i, :] = w_dist['WGAN']
-        past_future_corr_PGnorta_rec[i, :] = past_future_corr['PG']
-        past_future_corr_DSWGAN_rec[i, :] = past_future_corr['WGAN']
-        past_future_corr_train = past_future_corr['TRAIN']
-
-    fill_between_alpha = 0.3
-    plt.figure()
-    plt.fill_between(np.arange(
-        P), marginal_mean_PGnorta_CI['low'], marginal_mean_PGnorta_CI['up'], label='PGnorta', alpha=fill_between_alpha)
-    plt.fill_between(np.arange(
-        P), marginal_mean_DSWGAN_CI['low'], marginal_mean_DSWGAN_CI['up'], label='DS-WGAN', alpha=fill_between_alpha)
-    plt.plot(np.mean(train, axis=0), label='Training set', c='C2')
-    plt.legend()
-    plt.xlabel('Time Interval')
-    plt.ylabel('Mean of arrival count')
-    plt.xticks(ticks=np.arange(0, P), labels=np.arange(0, P)+1)
-    # plt.ylim(np.min(train)*0.9, np.max(train)*1.1)
-    plt.tight_layout()
-    plt.savefig(result_dir + 'figures/{}_compare_mean.pdf'.format(args.dataset))
-
-    plt.figure()
-    plt.fill_between(np.arange(
-        P), marginal_var_PGnorta_CI['low'], marginal_var_PGnorta_CI['up'], label='PGnorta', alpha=fill_between_alpha)
-    plt.fill_between(np.arange(
-        P), marginal_var_DSWGAN_CI['low'], marginal_var_DSWGAN_CI['up'], label='DS-WGAN', alpha=fill_between_alpha)
-    plt.plot(np.var(train, axis=0), label='Training set', c='C2')
-    plt.legend()
-    plt.xlabel('Time interval')
-    plt.ylabel('Variance of arrival count')
-    plt.xticks(ticks=np.arange(0, P), labels=np.arange(0, P)+1)
-    plt.tight_layout()
-    plt.savefig(result_dir + 'figures/{}_compare_var.pdf'.format(args.dataset))
-
-    plt.figure()
-    plt.fill_between(np.arange(
-        P-1), past_future_corr_PGnorta_CI['low'], past_future_corr_PGnorta_CI['up'], label='PGnorta', alpha=fill_between_alpha)
-    plt.fill_between(np.arange(
-        P-1), past_future_corr_DSWGAN_CI['low'], past_future_corr_DSWGAN_CI['up'], label='DS-WGAN', alpha=fill_between_alpha)
-    plt.plot(past_future_corr_train, label='Training set', c='C2')
-    plt.legend()
-    plt.xlabel('$j$')
-    plt.ylabel(
-        r'$\operatorname{Corr}\left(\mathbf{Y}_{1: j}, \mathbf{Y}_{j+1: p}\right)$')
-    plt.xticks(ticks=np.arange(0, P), labels=np.arange(0, P)+1)
-    # plt.ylim(np.min(train)*0.9, np.max(train)*1.1)
-    plt.tight_layout()
-    plt.savefig(
-        result_dir + 'figures/{}_compare_past_future_corr.pdf'.format(args.dataset))
-    plt.close('all')
-
-    plt.figure()
-    plt.fill_between(np.arange(
-        P), W_distance_PGnorta_CI['low'], W_distance_PGnorta_CI['up'], label=r'$D_{j}^{(P)}$', alpha=fill_between_alpha)
-    plt.fill_between(np.arange(
-        P), W_distance_DSWGAN_CI['low'], W_distance_DSWGAN_CI['up'], label=r'$D_{j}^{(D)}$', alpha=fill_between_alpha)
-    plt.legend()
-    plt.xlabel('Time Interval $j$')
-    plt.ylabel('Wasserstein distance')
-    plt.xticks(ticks=np.arange(0, P), labels=np.arange(0, P)+1)
-    # plt.ylim(np.min(train)*0.9, np.max(train)*1.1)
-    plt.tight_layout()
-    plt.savefig(
-        result_dir + 'figures/{}_compare_w_dist.pdf'.format(args.dataset))
-    plt.close('all')
-
-    # arrival count mat for ecdf and histogram
-    n_sample = 10000
-    # get count_WGAN_mat
-
-    noise = torch.randn(n_sample, args.seed_dim)
-
-    G_Z = netG(noise)
-
-    intensity_val = G_Z.cpu().data.numpy()
-    sign = np.sign(intensity_val)
-    intensity_val = intensity_val * sign
-    count_val = np.random.poisson(intensity_val)
-    count_WGAN_mat = count_val * sign
-
-    count_PGnorta_mat = norta.sample_count(n_sample)
-
-    if not os.path.exists(result_dir + 'figures/appendix/'):
-        os.mkdir(result_dir + 'figures/appendix/')
-
-    # plot cdf & ecdf, calculate statistics for marginal distribution
-    for interval in progressbar.progressbar(range(p)):
-        plt.figure()
-        ecdf_count_PGnorta = sns.ecdfplot(
-            data=count_PGnorta_mat[:, interval], alpha=0.3, label='PGnorta')
-        ecdf_count_WGAN = sns.ecdfplot(
-            data=count_WGAN_mat[:, interval], alpha=0.3, label='DS-WGAN')
-        ecdf_train = sns.ecdfplot(
-            data=train[:, interval], alpha=0.3, label='Training set')
-        plt.legend()
-        plt.xlabel('Arrival count')
-        if interval == 0:
-            plt.title(
-                'Empirical c.d.f of marginal arrival count for 1-st time interval'.format(interval+1))
-        if interval == 1:
-            plt.title(
-                'Empirical c.d.f of marginal arrival count for 2-nd time interval'.format(interval+1))
-        if interval == 2:
-            plt.title(
-                'Empirical c.d.f of marginal arrival count for 3-rd time interval'.format(interval+1))
-        else:
-            plt.title(
-                'Empirical c.d.f of marginal arrival count for {}-th  time interval'.format(interval+1))
-        plt.tight_layout()
-
-        plt.savefig(result_dir + 'figures/appendix/' + '{}_marginal_count_ecdf'.format(args.dataset) +
-                    str(interval) + '.pdf')
-        plt.close()
-
-        plt.figure()
-        bins = 50
-        fig_alpha = 0.2
-        plt.hist(count_PGnorta_mat[:, interval], bins=bins, alpha=fig_alpha,
-                 label='PGnorta', density=True)
-        plt.hist(count_WGAN_mat[:, interval], bins=bins, alpha=fig_alpha,
-                 label='DS-WGAN', density=True)
-        plt.hist(train[:, interval], bins=bins, alpha=fig_alpha,
-                 label='Training set', density=True)
-        plt.xlabel('Arrival count')
-        if interval == 0:
-            plt.title(
-                'Histogram of marginal arrival count for 1-st time interval'.format(interval+1))
-        if interval == 1:
-            plt.title(
-                'Histogram of marginal arrival count for 2-nd time interval'.format(interval+1))
-        if interval == 2:
-            plt.title(
-                'Histogram of marginal arrival count for 3-rd time interval'.format(interval+1))
-        else:
-            plt.title(
-                'Histogram of marginal arrival count for {}-th time interval'.format(interval+1))
-        sns_data = {'PGnorta': count_PGnorta_mat[:, interval],
-                    'Training': train[:, interval], 'DS-WGAN': count_WGAN_mat[:, interval]}
-        sns.kdeplot(data=sns_data, common_norm=False)
-        plt.legend()
-        plt.tight_layout()
-        plt.savefig(result_dir + 'figures/appendix/' + '{}_marginal_count_hist'.format(args.dataset) +
-                    str(interval) + '.pdf')
-        plt.close()
-
-
 def eval_infinite_server_queue(count_WGAN, exp_data, fig_dir_name):
     P = count_WGAN.shape[0]
     wgan_arrival_epoch_ls = arrival_epoch_simulator(
@@ -442,16 +251,16 @@ def eval_infinite_server_queue(count_WGAN, exp_data, fig_dir_name):
 
     fake_batch_arrival_process = BatchArrivalProcess(
         T, wgan_arrival_epoch_ls)
-    real_batch_arrival_proess = BatchArrivalProcess(
+    real_batch_arrival_process = BatchArrivalProcess(
         T, exp_data['test_arrival_epoch_ls'])
 
-    real_batch_arrival_proess.set_service_time(sampler)
+    real_batch_arrival_process.set_service_time(sampler)
     fake_batch_arrival_process.set_service_time(sampler)
 
     fake_occupied_mat = infinite_server_queue_batch(
         fake_batch_arrival_process, eval_t_ls)
     real_occupied_mat = infinite_server_queue_batch(
-        real_batch_arrival_proess, eval_t_ls)
+        real_batch_arrival_process, eval_t_ls)
 
     fake_mean_occupied = np.mean(fake_occupied_mat, axis=0)
     real_mean_occupied = np.mean(real_occupied_mat, axis=0)
@@ -507,21 +316,25 @@ def eval_infinite_server_queue(count_WGAN, exp_data, fig_dir_name):
     # fake_var_lb, fake_var_ub = get_CI(fake_n_occupied_var_mat)
 
 
-def eval_multi_server_queue(count_WGAN, exp_data, file_dir_name):
+def eval_multi_server_queue(count_WGAN, exp_data, file_dir_name, iteration, backend='cpp'):
     if not hasattr(eval_multi_server_queue, "real_wait_ls"):
-        print('this message should appear only once')
+        print('Run multi server queue for real CIR data')
         P = count_WGAN.shape[1]
-        count_WGAN = count_WGAN[:20, :]
+
+        n_vis_interval = 44
+
+        # total length
         eval_multi_server_queue.T = P * exp_data['interval_len']
-        server_ls = get_server_ls(np.linspace(
-            0, eval_multi_server_queue.T, P+1), [100]*P)
-        # server_ls = [ScheduledServer(torch.tensor([0.0, 9.0, 10.0], requires_grad=True), ['idle', 'home', 'busy']),
-        #              ScheduledServer(torch.tensor(
-        #                  [0.0, 10.0], requires_grad=True), ['idle', 'busy']),
-        #              ScheduledServer(torch.tensor(
-        #                  [0.0, 3.0, 4.0, 8.0], requires_grad=True), ['idle', 'busy', 'idle', 'busy']),
-        #              ScheduledServer(torch.tensor([2.0, 5.0, 7.0, 9.0], requires_grad=True), ['idle', 'busy', 'idle', 'busy'])]
-        eval_multi_server_queue.servers = ChangingServerCluster(server_ls)
+        # the time point that number of server will change
+        eval_multi_server_queue.change_point = np.linspace(
+            0, eval_multi_server_queue.T, P+1)
+        eval_multi_server_queue.n_server_ls = [20] * P
+
+        vis_interval_ls = np.linspace(
+            0, eval_multi_server_queue.T, n_vis_interval+1)
+
+        eval_infinite_server_queue.vis_interval_mid = (
+            vis_interval_ls[1:] + vis_interval_ls[:-1])/2
 
         # lognormal distribution with
         # mean 206.44 and variance 23,667 (in seconds) as estimated from the data. Each waiting call
@@ -539,29 +352,161 @@ def eval_multi_server_queue(count_WGAN, exp_data, file_dir_name):
         def sampler(size): return np.random.lognormal(
             mean=normal_mean, sigma=normal_sigma, size=size)
         eval_multi_server_queue.sampler = sampler
-        real_batch_arrival_proess = BatchArrivalProcess(
+
+        real_batch_arrival_process = BatchArrivalProcess(
             eval_multi_server_queue.T, exp_data['test_arrival_epoch_ls'])
-        real_batch_arrival_proess.set_service_time(
+        real_batch_arrival_process.set_service_time(
             eval_multi_server_queue.sampler)
-        eval_multi_server_queue.real_wait_ls = batch_multi_server_queue(
-            real_batch_arrival_proess, eval_multi_server_queue.servers)
 
-    # service_rate = 1
-    # sampler = lambda size: np.random.exponential(1/service_rate, size=size)
-    count_WGAN = count_WGAN[:20, :]
-    wgan_arrival_epoch_ls = arrival_epoch_simulator(
-        count_WGAN, exp_data['interval_len'])
-    fake_batch_arrival_process = BatchArrivalProcess(
-        eval_multi_server_queue.T, wgan_arrival_epoch_ls)
-    fake_batch_arrival_process.set_service_time(
-        eval_multi_server_queue.sampler)
-    fake_wait_ls = batch_multi_server_queue(
-        fake_batch_arrival_process, eval_multi_server_queue.servers)
+        def get_CI(input_mat):
+            lb = np.percentile(input_mat, 2.5, axis=0)
+            ub = np.percentile(input_mat, 97.5, axis=0)
+            return lb, ub
 
-    a = 1
+        if backend in ['cpp', 'both']:
+            import des_cpp
 
-    # visualize fake_wait_ls & real_wait_ls
+            # eval_multi_server_queue.real_wait_ls_cpp = np.ndarray(
+            #     (real_batch_arrival_process.n_arrival_process,), dtype=np.object)
 
-    # group real_wait_ls and fake_wait_ls by their arrivaling time
+            for i in progressbar.progressbar(range(real_batch_arrival_process.n_arrival_process)):
+                a = real_batch_arrival_process.arrival_process_ls[i].arrival_ls
+                b = real_batch_arrival_process.arrival_process_ls[i].service_ls
+                c = eval_multi_server_queue.change_point.tolist()
+                wait_ls = des_cpp.multi_server_queue(
+                    a, b, c, eval_multi_server_queue.n_server_ls, False)
 
-    # raise NotImplementedError('queue type not implemented')
+                # set -1 to nan
+                wait_ls = np.array(wait_ls)
+                wait_ls[wait_ls == -1] = np.nan
+                # exit_ls = wait_ls + \
+                #     real_batch_arrival_process.arrival_process_ls[i].service_ls
+                # eval_multi_server_queue.real_wait_ls_cpp[i] = wait_ls
+                real_batch_arrival_process.set_wait_time(i, wait_ls)
+                # plt.plot(a, wait_ls)
+            # plt.xlim(0, eval_multi_server_queue.T)
+            # plt.show()
+
+            eval_multi_server_queue.real_summary = real_batch_arrival_process.get_batch_wait_summary(
+                vis_interval_ls, quantile=0.8)
+
+        if backend in ['python', 'both']:
+            server_ls = get_server_ls(
+                eval_multi_server_queue.change_point, eval_multi_server_queue.n_server_ls)
+            eval_multi_server_queue.servers = ChangingServerCluster(server_ls)
+            eval_multi_server_queue.real_wait_ls_py = batch_multi_server_queue(
+                real_batch_arrival_process, eval_multi_server_queue.servers)
+
+        if backend == 'both':
+            # [ ] compare the two results and fix some potential bugs
+            plt.figure(figsize=(18, 5))
+            plt.subplot(121)
+            for i in range(len(eval_multi_server_queue.real_wait_ls_cpp)):
+                plt.plot(
+                    real_batch_arrival_process.arrival_process_ls[i].arrival_ls, eval_multi_server_queue.real_wait_ls_cpp[i])
+            plt.xlim(0, eval_multi_server_queue.T)
+            plt.subplot(122)
+            for i in range(len(eval_multi_server_queue.real_wait_ls_py)):
+                plt.plot(
+                    real_batch_arrival_process.arrival_process_ls[i].arrival_ls, eval_multi_server_queue.real_wait_ls_py[i][0])
+            plt.xlim(0, eval_multi_server_queue.T)
+            plt.show()
+
+    print('Run multi server queue for fake CIR data')
+    if backend == 'cpp':
+        wgan_arrival_epoch_ls = arrival_epoch_simulator(
+            count_WGAN, exp_data['interval_len'])
+        fake_batch_arrival_process = BatchArrivalProcess(
+            eval_multi_server_queue.T, wgan_arrival_epoch_ls)
+        fake_batch_arrival_process.set_service_time(
+            eval_multi_server_queue.sampler)
+
+        # fake_wait_ls = np.ndarray(
+        #         (fake_batch_arrival_process.n_arrival_process,), dtype=np.object)
+
+        for i in progressbar.progressbar(range(fake_batch_arrival_process.n_arrival_process)):
+            a = fake_batch_arrival_process.arrival_process_ls[i].arrival_ls
+            b = fake_batch_arrival_process.arrival_process_ls[i].service_ls
+            c = eval_multi_server_queue.change_point.tolist()
+            wait_ls = des_cpp.multi_server_queue(
+                a, b, c, eval_multi_server_queue.n_server_ls, False)
+
+            # set -1 to nan
+            wait_ls = np.array(wait_ls)
+            wait_ls[wait_ls == -1] = np.nan
+            # exit_ls = wait_ls + \
+            #     real_batch_arrival_process.arrival_process_ls[i].service_ls
+            # fake_wait_ls[i] = wait_ls
+            fake_batch_arrival_process.set_wait_time(i, wait_ls)
+
+    elif backend == 'python':
+        # service_rate = 1
+        # sampler = lambda size: np.random.exponential(1/service_rate, size=size)
+        count_WGAN = count_WGAN[:20, :]
+        wgan_arrival_epoch_ls = arrival_epoch_simulator(
+            count_WGAN, exp_data['interval_len'])
+        fake_batch_arrival_process = BatchArrivalProcess(
+            eval_multi_server_queue.T, wgan_arrival_epoch_ls)
+        fake_batch_arrival_process.set_service_time(
+            eval_multi_server_queue.sampler)
+        fake_wait_ls = batch_multi_server_queue(
+            fake_batch_arrival_process, eval_multi_server_queue.servers)
+
+    fake_summary = fake_batch_arrival_process.get_batch_wait_summary(vis_interval_ls=vis_interval_ls,
+                                                                     quantile=0.8)
+    if True:
+        # visualize fake_wait_ls & real_wait_ls
+        plt.figure()
+        mean_real_lb, mean_real_ub = get_CI(
+            eval_multi_server_queue.real_summary['mean'])
+        mean_fake_lb, mean_fake_ub = get_CI(fake_summary['mean'])
+        plt.plot(eval_infinite_server_queue.vis_interval_mid,
+                 mean_real_lb, 'r--', label='real_lb')
+        plt.plot(eval_infinite_server_queue.vis_interval_mid,
+                 mean_real_ub, 'r--', label='real_ub')
+        plt.plot(eval_infinite_server_queue.vis_interval_mid,
+                 mean_fake_lb, 'b--', label='fake_lb')
+        plt.plot(eval_infinite_server_queue.vis_interval_mid,
+                 mean_fake_ub, 'b--', label='fake_ub')
+        plt.savefig(os.path.join(file_dir_name,
+                    'multi_mean_{}.png'.format(iteration)))
+
+        plt.figure()
+        var_real_lb, var_real_ub = get_CI(
+            eval_multi_server_queue.real_summary['var'])
+        var_fake_lb, var_fake_ub = get_CI(fake_summary['var'])
+        plt.plot(eval_infinite_server_queue.vis_interval_mid,
+                 var_real_lb, 'r--', label='real_lb')
+        plt.plot(eval_infinite_server_queue.vis_interval_mid,
+                 var_real_ub, 'r--', label='real_ub')
+        plt.plot(eval_infinite_server_queue.vis_interval_mid,
+                 var_fake_lb, 'b--', label='fake_lb')
+        plt.plot(eval_infinite_server_queue.vis_interval_mid,
+                 var_fake_ub, 'b--', label='fake_ub')
+        plt.savefig(os.path.join(file_dir_name,
+                    'multi_var_{}.png'.format(iteration)))
+
+        plt.figure()
+        quantile_real_lb, quantile_real_ub = get_CI(
+            eval_multi_server_queue.real_summary['quantile'])
+        quantile_fake_lb, quantile_fake_ub = get_CI(fake_summary['quantile'])
+        plt.plot(eval_infinite_server_queue.vis_interval_mid,
+                 quantile_real_lb, 'r--', label='real_lb')
+        plt.plot(eval_infinite_server_queue.vis_interval_mid,
+                 quantile_real_ub, 'r--', label='real_ub')
+        plt.plot(eval_infinite_server_queue.vis_interval_mid,
+                 quantile_fake_lb, 'b--', label='fake_lb')
+        plt.plot(eval_infinite_server_queue.vis_interval_mid,
+                 quantile_fake_ub, 'b--', label='fake_ub')
+        plt.savefig(os.path.join(file_dir_name,
+                    'multi_quantile_{}.png'.format(iteration)))
+
+    plt.figure()
+    plt.subplot(121)
+    plt.pcolor(eval_multi_server_queue.real_summary['mean'])
+    plt.colorbar()
+    plt.subplot(122)
+    plt.pcolor(fake_summary['mean'])
+    plt.colorbar()
+    plt.savefig(os.path.join(file_dir_name,
+                'multi_pcolor_{}.png'.format(iteration)))

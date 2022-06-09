@@ -1,9 +1,11 @@
 from code import interact
-from wsgiref.simple_server import ServerHandler
 import torch
 import numpy as np
 import progressbar
-import copy
+import des_cpp
+import time
+import matplotlib.pyplot as plt
+# import copy
 
 
 # import ..core.arrival_process.BatchArrivalProcess
@@ -168,7 +170,7 @@ class ChangingServerCluster():
     def copy(self):
         return ChangingServerCluster([_.copy() for _ in self.server_ls])
 
-    def assign_server(self, t, service_time, first=False):
+    def assign_server(self, t, service_time, first=True):
         """Get server id.
 
         randomly return the server that is idle from time t to t + service_time
@@ -322,18 +324,20 @@ if __name__ == '__main__':
     interval_len = 0.5
     T = P * interval_len
 
-    server_ls = get_server_ls(np.linspace(0, T, P+1), [30]*P)
+    change_point = np.linspace(0, T, P+1)
+    n_server_ls = [40]*P
+
+    server_ls = get_server_ls(change_point, n_server_ls)
 
     servers = ChangingServerCluster(server_ls)
 
     # lognormal distribution with
-    # mean 206.44 and variance 23,667 (in seconds) as estimated from the data. Each waiting call
-    lognormal_var = 206.44/3600
-    lognormal_mean = 23667/3600**2
-    # lognormal_var = 0.1
-    # lognormal_mean = 0.1
+    # # mean 206.44 and variance 23,667 (in seconds) as estimated from the data. Each waiting call
+    # lognormal_var = 206.44/3600
+    # lognormal_mean = 23667/3600**2
+
     lognormal_var = 0.1
-    lognormal_mean = 0.1
+    lognormal_mean = 1
     normal_sigma = (
         np.log(lognormal_var / lognormal_mean ** 2 + 1))**0.5
     normal_mean = np.log(lognormal_mean) - \
@@ -346,11 +350,46 @@ if __name__ == '__main__':
 
     wgan_arrival_epoch_ls = np.ndarray(100, dtype=object)
 
-    n_rep = 20
+    n_rep = 50
     for i in range(n_rep):
         wgan_arrival_epoch_ls[i] = torch.tensor(
-            np.sort(np.random.uniform(0, T, 2000)))
+            np.sort(np.random.uniform(0, T, 1000)))
 
+    lim = 1000000
+
+    # get time needed for running the simulation
+    start_time = time.time()
+    plt.figure(figsize=(10, 5))
+    plt.subplot(121)
+    service_ls_rec = []
     for i in progressbar.progressbar(range(n_rep)):
-        wait_ls = multi_server_queue(
-            wgan_arrival_epoch_ls[0], sampler(len(wgan_arrival_epoch_ls[i])), servers)
+        service_ls = sampler(len(wgan_arrival_epoch_ls[i]))
+        service_ls_rec.append(service_ls)
+        wait_ls, exit_ls = multi_server_queue(
+            wgan_arrival_epoch_ls[0], service_ls, servers)
+        plt.plot(wgan_arrival_epoch_ls[0][:lim],
+                 wait_ls[:lim], label='rep {}'.format(i))
+    # plt.legend()
+    end_time = time.time()
+    print('time needed for running the simulation for one rep: ',
+          (end_time - start_time)/n_rep)
+
+    # plot the result
+    start_time = time.time()
+    # plt.subplot(122)
+    for i in progressbar.progressbar(range(n_rep)):
+        a = wgan_arrival_epoch_ls[i].tolist()
+        b = service_ls_rec[i].tolist()
+        c = change_point.tolist()
+        wait_ls = des_cpp.multi_server_queue(
+            a, b, c, n_server_ls, False)
+        # set -1 to nan
+        wait_ls[wait_ls == -1] = torch.nan
+        plt.plot(wgan_arrival_epoch_ls[i][:lim],
+                 wait_ls[:lim], label='rep {}'.format(i))
+    # plt.legend()
+    end_time = time.time()
+    # plt.show()
+
+    print('time needed for running the simulation for one rep: ',
+          (end_time - start_time)/n_rep)

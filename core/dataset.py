@@ -1,17 +1,66 @@
-import os
-from scipy.stats import gamma, multivariate_normal, norm, uniform
-import numpy as np
-import shutil
-import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
+import matplotlib.pyplot as plt
+import numpy as np
+from scipy.stats import gamma, multivariate_normal, norm, uniform
+import os
+import torch
+from .arrival_process import BatchCIR
+from .pgnorta import get_PGnorata_from_img
+
+# from core.dataset import get_real_dataset, get_synthetic_dataset, visualize
+
+# from . import get_real_dataset, get_synthetic_dataset, visualize
+
+
+def prepare_data(args, result_dir=''):
+    dataset = args.dataset
+    # new_data = args.resample
+
+    return_val = {}
+
+    if dataset in ['bikeshare', 'callcenter']:
+        train, test = get_real_dataset(dataset)
+    elif dataset == 'cir':
+        # set CIR parameters
+        # get CIR arrival count, arrival epoch
+        P = 22
+        interval_len = 0.5
+        T = P * interval_len
+
+        base_lam = np.array([124, 175, 239, 263, 285,
+                            299, 292, 276, 249, 257,
+                            274, 273, 268, 259, 251,
+                            252, 244, 219, 176, 156,
+                            135, 120])
+
+        cir = BatchCIR(base_lam, interval_len)
+        train, _ = cir.simulate_batch_CIR(n_CIR=args.n_train)
+        test, return_val['test_arrival_epoch_ls'] = cir.simulate_batch_CIR(
+            n_CIR=args.n_test)
+        return_val['interval_len'] = interval_len
+        # train --[dswgan]--> trained model ----> fake arrival count --[arrival epoch simulator]--> fake arrival epoch
+        # arrival epoch --[run through queue]--> waiting time
+
+        # raise NotImplemented
+    elif dataset in ['uniform', 'bimodal', 'pgnorta']:
+        data_dir = 'assets/{}/'.format(dataset)
+        intensity, train = get_synthetic_dataset(
+            args.n_interval, args.n_train, dataset, data_dir)
+        # raise error with message 'dataset not supported'
+    else:
+        raise NotImplemented('Dataset not supported')
+    visualize(dataset, os.path.join(result_dir, 'figures'), train)
+
+    return_val['train'] = torch.tensor(train, dtype=torch.float)
+    return return_val
 
 
 # set marginal mean, marginal variance for intensity.
 # set corr_mat for the underlying multi-normal distribution
 CC_test = np.load(
-    '/Users/hector/Desktop/Doubly_Stochastic_WGAN/Dataset/oakland_callcenter_dswgan/test_callcenter.npy')
+    'assets/test_callcenter.npy')
 CC_train = np.load(
-    '/Users/hector/Desktop/Doubly_Stochastic_WGAN/Dataset/oakland_callcenter_dswgan/train_callcenter.npy')
+    'assets/train_callcenter.npy')
 
 data = CC_train
 p = np.shape(data)[1]
@@ -21,38 +70,66 @@ marginal_mean = np.mean(data, axis=0)
 marginal_var = np.var(data, axis=0)
 
 
-def get_synthetic_dataset(P, N_TRAIN, DATASET, NEW_DATA, DATA_DIR=None):
-    if NEW_DATA:
-        if os.path.exists(DATA_DIR):
-            print(
-                "Data directory already exists, remove exisiting DATA_DIR ({}) ()? [y/n]".format(DATA_DIR))
-            if input() == 'y':
-                shutil.rmtree(DATA_DIR)
-            elif input() == 'n':
-                print("Abort")
-                exit()
-            else:
-                print("Invalid input")
-                exit()
-        print('Sample new dataset and save to {}'.format(DATA_DIR))
-        if DATASET not in ['uniform', 'bimodal']:
+def get_synthetic_dataset(P, N_TRAIN, DATASET, DATA_DIR=None):
+
+    if not os.path.exists(DATA_DIR):
+        os.mkdir(DATA_DIR)
+
+    # print(
+    #         "Data directory already exists, remove exisiting DATA_DIR ({}) ()? [y/n]".format(DATA_DIR))
+    #     if input() == 'y':
+    #         shutil.rmtree(DATA_DIR)
+    #     elif input() == 'n':
+    #         print("Abort")
+    #         exit()
+    #     else:
+    #         print("Invalid input")
+    #         exit()
+    # else:
+    data_dir_name = os.path.join(
+        DATA_DIR, 'n_interval_{}_n_sample_{}.npz'.format(P, N_TRAIN))
+    if not os.path.exists(data_dir_name):
+        # print(
+        #     "Data directory already exists, remove exisiting file ({})? [y/n]".format(data_dir_name))
+        # if input() == 'y':
+        #     shutil.rmtree(data_dir_name)
+        # elif input() == 'n':
+        #     print("Abort")
+        #     exit()
+        # else:
+        #     print("Invalid input")
+        #     exit()
+
+        print('Sample new dataset and save to {}'.format(data_dir_name))
+
+        if DATASET not in ['uniform', 'bimodal', 'pgnorta']:
             raise ValueError('Dataset not supported')
         if DATASET == 'uniform':
             intensity, train = sample_uniform(P, N_TRAIN)
         if DATASET == 'bimodal':
             intensity, train = sample_bimodal(P, N_TRAIN)
-        os.mkdir(DATA_DIR)
-        np.save(DATA_DIR + 'train_{}.npy'.format(DATASET), train)
-        np.save(DATA_DIR + 'intensity_{}.npy'.format(DATASET), intensity)
-
+        if DATASET == 'pgnorta':
+            intensity, train = sample_pgnorta(N_TRAIN)
+        np.savez(data_dir_name, train=train, intensity=intensity)
     else:
-        # if NEW_DATA is False, then DATA_DIR must be a valid directory
-        assert os.path.isdir(
-            DATA_DIR), 'DATA_DIR must be a valid directory if NEW_DATA is False'
-        print('Load from exisitng files in {}'.format(DATA_DIR))
-        intensity, train = np.load(DATA_DIR + 'intensity_{}.npy'.format(
-            DATASET)), np.load(DATA_DIR + 'train_{}.npy'.format(DATASET))
+        print(
+            "Data directory already exists, load existing file ({})".format(data_dir_name))
+        npzfile = np.load(data_dir_name)
+        train = npzfile['train']
+        intensity = npzfile['intensity']
+
     return intensity, train
+    # np.save(DATA_DIR + 'train_{}.npy'.format(DATASET), train)
+    # np.save(DATA_DIR + 'intensity_{}.npy'.format(DATASET), intensity)
+
+# else:
+#     # if NEW_DATA is False, then DATA_DIR must be a valid directory
+#     assert os.path.isdir(
+#         DATA_DIR), 'DATA_DIR must be a valid directory if NEW_DATA is False'
+#     print('Load from exisitng files in {}'.format(DATA_DIR))
+#     intensity, train = np.load(DATA_DIR + 'intensity_{}.npy'.format(
+#         DATASET)), np.load(DATA_DIR + 'train_{}.npy'.format(DATASET))
+#     return intensity, train
 
 
 def get_real_dataset(DATASET):
@@ -81,6 +158,11 @@ def sample_uniform(P, N_TRAIN):
     train = np.random.poisson(intensity)
 
     return intensity, train
+
+
+def sample_pgnorta(N_TRAIN):
+    pgnorta = get_PGnorata_from_img()
+    return pgnorta.sample_both(N_TRAIN)
 
 
 def sample_bimodal(P, N_TRAIN):

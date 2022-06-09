@@ -6,15 +6,16 @@ The official implementation of **Doubly Stochastic Generative Arrivals Modeling*
 
 TODO:
 
-- [ ] Make the Poisson simulator layer into a PyTorch self defined layer
+- [ ] set appropriate server scheduling for multi server queue experiment (maybe a individual ipynb notebook).
+- [ ] Verify results.
+- [ ] erase the warning when running "python setup.py install"
+- [ ] add args message for des_cpp
+- [x] CUDA support.
+- [x] Make the Poisson simulator layer into a PyTorch self defined layer
 - [x] Arrival epochs simulator
 - [x] Sample CIR process
 - [x] Run-through-queue
-- [ ] Test each dataset argument.
-- [ ] CUDA support.
-- [ ] Speed up multi server queue, C++ reimplement or multi-thread in python.
-
-
+- [x] Speed up multi server queue, C++ reimplement or multi-thread in python.
 
 ## Setup environment
 
@@ -31,7 +32,13 @@ pip install geomloss
 conda install -c anaconda seaborn -y
 ```
 
-
+To build and install the C++ implementad descrete event simulation library (mainly for simulating multi-server queue), we assume you have installed the adequate C++ compiler. After that, activate the conda environment, then
+```
+conda install -c conda-forge pybind11 -y
+cd core/des/des_cpp
+python setup.py install
+```
+which will compile and install the discrete event simulation library to your conda environment.
 
 ## Run experiments
 
@@ -43,16 +50,17 @@ python main.py --dataset uniform
 python main.py --dataset bimodal
 python main.py --dataset bikeshare
 python main.py --dataset callcenter
+python main.py --dataset pgnorta
 ```
 
 
 
 | Dataset    | Verified code | Verified results |
 | ---------- | :-----------: | :--------------: |
-| CIR        |               |                  |
-| Uniform    |               |                  |
-| Bimodal    |               |                  |
+| CIR        |       ✅       |                  |
+| Uniform    |       ✅       |                  |
+| Bimodal    |       ✅       |                  |
 | Bikeshare  |       ✅       |                  |
 | Callcenter |       ✅       |                  |
-| PGnorta    |               |                  |
+| PGnorta    |       ✅       |                  |
 

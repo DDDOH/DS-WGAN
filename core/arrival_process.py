@@ -1,17 +1,14 @@
 import numpy as np
 import numpy as np
-import matplotlib.pyplot as plt
 import progressbar
-import pandas as pd
 from scipy.interpolate import interp1d
 from scipy.stats import gamma
-import math
 
 
 class ArrivalProcess():
     # general arrival process
     def __init__(self, T, arrival_ls):
-        self.arrival_ls = arrival_ls
+        self.arrival_ls = np.sort(arrival_ls)
         self.T = T
         self.n_arrival = len(arrival_ls)
 
@@ -25,8 +22,35 @@ class ArrivalProcess():
         # group arrivals into intervals of length interval_len, and count the number of arrivals in each interval
         return np.histogram(self.arrival_ls, bins=np.arange(0, self.T + interval_len, interval_len))[0]
 
+    def set_wait_time(self, wait_ls):
+        self.wait_ls = wait_ls
 
-class BatchArrivalProcess(ArrivalProcess):
+    def get_wait_summary(self, vis_interval_ls, quantile):
+        # get the summary of wait time in each interval
+        wait_summary = {'mean': np.zeros(len(vis_interval_ls) - 1),
+                        'var': np.zeros(len(vis_interval_ls) - 1),
+                        'quantile': np.zeros(len(vis_interval_ls) - 1)}
+        for i in range(len(vis_interval_ls)-1):
+            interval_start = vis_interval_ls[i]
+            interval_end = vis_interval_ls[i + 1]
+            index = np.searchsorted(
+                self.arrival_ls, [interval_start, interval_end])
+
+            if index[0] != index[1]:
+                assert np.min(
+                    self.arrival_ls[index[0]:index[1]]) >= interval_start
+                assert np.max(
+                    self.arrival_ls[index[0]:index[1]]) <= interval_end
+
+            wait_ls_within_interval = self.wait_ls[index[0]:index[1]]
+            wait_summary['mean'][i] = np.mean(self.wait_ls[index[0]:index[1]])
+            wait_summary['var'][i] = np.var(self.wait_ls[index[0]:index[1]])
+            wait_summary['quantile'][i] = np.quantile(
+                self.wait_ls[index[0]:index[1]], quantile) if index[0] != index[1] else np.nan
+        return wait_summary
+
+
+class BatchArrivalProcess():
     def __init__(self, T, arrival_ls_ls):
         self.arrival_process_ls = [ArrivalProcess(
             T, arrival_ls) for arrival_ls in arrival_ls_ls]
@@ -37,6 +61,21 @@ class BatchArrivalProcess(ArrivalProcess):
         for i in range(self.n_arrival_process):
             self.arrival_process_ls[i].set_service_time(
                 service_sampler(self.arrival_process_ls[i].n_arrival))
+
+    def set_wait_time(self, i, wait_ls):
+        self.arrival_process_ls[i].set_wait_time(wait_ls)
+
+    def get_batch_wait_summary(self, vis_interval_ls, quantile):
+        batch_wait_summary = {'mean': np.zeros((self.n_arrival_process, len(vis_interval_ls) - 1)),
+                              'var': np.zeros((self.n_arrival_process, len(vis_interval_ls) - 1)),
+                              'quantile': np.zeros((self.n_arrival_process, len(vis_interval_ls) - 1))}
+        for i in range(self.n_arrival_process):
+            wait_summary = self.arrival_process_ls[i].get_wait_summary(
+                vis_interval_ls, quantile)
+            batch_wait_summary['mean'][i, :] = wait_summary['mean']
+            batch_wait_summary['var'][i, :] = wait_summary['var']
+            batch_wait_summary['quantile'][i, :] = wait_summary['quantile']
+        return batch_wait_summary
 
 
 class NHPP(ArrivalProcess):
